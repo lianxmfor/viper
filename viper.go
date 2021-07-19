@@ -40,9 +40,9 @@ import (
 	"github.com/spf13/cast"
 	jww "github.com/spf13/jwalterweatherman"
 	"github.com/spf13/pflag"
-	"github.com/subosito/gotenv"
 
 	"github.com/spf13/viper/internal/encoding"
+	"github.com/spf13/viper/internal/encoding/dotenv"
 	"github.com/spf13/viper/internal/encoding/hcl"
 	"github.com/spf13/viper/internal/encoding/ini"
 	"github.com/spf13/viper/internal/encoding/javaproperties"
@@ -360,6 +360,16 @@ func (v *Viper) resetEncoding() {
 
 		encoderRegistry.RegisterEncoder("prop", codec)
 		decoderRegistry.RegisterDecoder("prop", codec)
+	}
+
+	{
+		codec := &dotenv.Codec{}
+
+		encoderRegistry.RegisterEncoder("dotenv", codec)
+		decoderRegistry.RegisterDecoder("dotenv", codec)
+
+		encoderRegistry.RegisterEncoder("env", codec)
+		decoderRegistry.RegisterDecoder("env", codec)
 	}
 
 	v.encoderRegistry = encoderRegistry
@@ -1655,19 +1665,10 @@ func (v *Viper) unmarshalReader(in io.Reader, c map[string]interface{}) error {
 	buf.ReadFrom(in)
 
 	switch format := strings.ToLower(v.getConfigType()); format {
-	case "yaml", "yml", "json", "toml", "hcl", "ini", "properties", "props", "prop":
+	case "yaml", "yml", "json", "toml", "hcl", "ini", "properties", "props", "prop", "dotenv", "env":
 		err := v.decoderRegistry.Decode(format, buf.Bytes(), c)
 		if err != nil {
 			return ConfigParseError{err}
-		}
-
-	case "dotenv", "env":
-		env, err := gotenv.StrictParse(buf)
-		if err != nil {
-			return ConfigParseError{err}
-		}
-		for k, v := range env {
-			c[k] = v
 		}
 	}
 
@@ -1679,7 +1680,7 @@ func (v *Viper) unmarshalReader(in io.Reader, c map[string]interface{}) error {
 func (v *Viper) marshalWriter(f afero.File, configType string) error {
 	c := v.AllSettings()
 	switch configType {
-	case "yaml", "yml", "json", "toml", "hcl", "ini", "prop", "props", "properties":
+	case "yaml", "yml", "json", "toml", "hcl", "ini", "prop", "props", "properties", "dotenv", "env":
 		b, err := v.encoderRegistry.Encode(configType, c)
 		if err != nil {
 			return ConfigMarshalError{err}
@@ -1687,18 +1688,6 @@ func (v *Viper) marshalWriter(f afero.File, configType string) error {
 
 		_, err = f.WriteString(string(b))
 		if err != nil {
-			return ConfigMarshalError{err}
-		}
-
-	case "dotenv", "env":
-		lines := []string{}
-		for _, key := range v.AllKeys() {
-			envName := strings.ToUpper(strings.Replace(key, ".", "_", -1))
-			val := v.Get(key)
-			lines = append(lines, fmt.Sprintf("%v=%v", envName, val))
-		}
-		s := strings.Join(lines, "\n")
-		if _, err := f.WriteString(s); err != nil {
 			return ConfigMarshalError{err}
 		}
 	}
